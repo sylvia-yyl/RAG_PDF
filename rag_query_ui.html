@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RAG Query Interface</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0c0d0f;
+    --surface: #13151a;
+    --surface2: #1a1d25;
+    --border: #2a2e3d;
+    --accent: #5b8af0;
+    --accent2: #a78bfa;
+    --accent3: #34d399;
+    --text: #e8eaf2;
+    --muted: #6b7280;
+    --danger: #f87171;
+    --warn: #fbbf24;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(91,138,240,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(91,138,240,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  /* Header */
+  .header { margin-bottom: 48px; animation: fadeDown 0.6s ease both; }
+  .header-label { font-size: 11px; letter-spacing: 0.2em; color: var(--accent); text-transform: uppercase; margin-bottom: 10px; }
+  .header h1 { font-family: 'Fraunces', serif; font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 300; line-height: 1.1; letter-spacing: -0.02em; }
+  .header h1 span { font-style: italic; color: var(--accent); }
+  .header-desc { margin-top: 14px; font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 500px; }
+
+  /* Query box */
+  .query-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 28px;
+    animation: fadeDown 0.6s 0.1s ease both;
+  }
+  .query-label { font-size: 11px; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; margin-bottom: 12px; }
+  .query-input-row { display: flex; gap: 12px; align-items: stretch; }
+
+  textarea {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 14px 16px;
+    resize: vertical;
+    min-height: 80px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  textarea::placeholder { color: var(--muted); }
+  textarea:focus { border-color: var(--accent); }
+
+  .run-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 14px 24px;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    white-space: nowrap;
+    align-self: flex-end;
+  }
+  .run-btn:hover { background: #4a79e0; }
+  .run-btn:active { transform: scale(0.97); }
+  .run-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+
+  /* Status */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 32px;
+    height: 20px;
+    animation: fadeDown 0.6s 0.15s ease both;
+  }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); transition: background 0.3s; }
+  .status-dot.active { background: var(--accent3); animation: pulse 1.2s ease infinite; }
+  .status-dot.done   { background: var(--accent3); animation: none; }
+  .status-dot.error  { background: var(--danger);  animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* Output */
+  .output-section { opacity: 0; transform: translateY(16px); transition: opacity 0.4s ease, transform 0.4s ease; }
+  .output-section.visible { opacity: 1; transform: translateY(0); }
+
+  /* Answer card */
+  .answer-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 24px;
+    position: relative;
+  }
+  .answer-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-title { font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+  .card-badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 20px;
+    background: rgba(91,138,240,0.12); color: var(--accent); border: 1px solid rgba(91,138,240,0.25);
+  }
+  .answer-body {
+    padding: 24px 20px;
+    font-family: 'Fraunces', serif;
+    font-size: 17px;
+    font-weight: 300;
+    line-height: 1.75;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* Sources */
+  .sources-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .sources-title { font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+  .sources-count {
+    font-size: 11px; padding: 2px 8px; border-radius: 20px;
+    background: rgba(167,139,250,0.1); color: var(--accent2); border: 1px solid rgba(167,139,250,0.2);
+  }
+  .source-list { display: flex; flex-direction: column; gap: 12px; }
+
+  .source-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    gap: 14px;
+    align-items: start;
+    transition: border-color 0.2s;
+  }
+  .source-card:hover { border-color: var(--accent2); }
+
+  .source-num {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 500; color: var(--accent2); flex-shrink: 0;
+  }
+  .source-meta { min-width: 0; }
+  .source-file { font-size: 13px; color: var(--text); margin-bottom: 6px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .source-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); }
+  .tag span { color: var(--text); }
+  .source-preview { font-size: 12px; color: var(--muted); line-height: 1.55; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; font-style: italic; }
+
+  /* Score meter */
+  .score-col { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+  .score-val { font-size: 18px; font-family: 'Fraunces', serif; font-weight: 600; line-height: 1; }
+  .score-label { font-size: 10px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+  .score-bar { width: 60px; height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+  .score-fill { height: 100%; border-radius: 2px; transition: width 0.8s ease; }
+
+  /* Skeleton */
+  .skeleton { background: linear-gradient(90deg, var(--surface2) 25%, var(--surface) 50%, var(--surface2) 75%); background-size: 200% 100%; animation: shimmer 1.4s ease infinite; border-radius: 4px; }
+  @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+  .skeleton-line { height: 16px; margin-bottom: 10px; }
+  .skeleton-line:last-child { width: 65%; margin-bottom: 0; }
+
+  /* Error */
+  .error-box {
+    background: rgba(248,113,113,0.08);
+    border: 1px solid rgba(248,113,113,0.25);
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-size: 13px;
+    color: var(--danger);
+    display: none;
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+
+  @keyframes fadeDown { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:translateY(0)} }
+  .divider { height: 1px; background: var(--border); margin: 28px 0; }
+  .score-high { color: var(--accent3); } .score-mid { color: var(--warn); } .score-low { color: var(--danger); }
+  .fill-high  { background: var(--accent3); } .fill-mid { background: var(--warn); } .fill-low { background: var(--danger); }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="header-label">// RAG Query Interface</div>
+    <h1>Ask your <span>documents</span></h1>
+    <p class="header-desc">Query your Chroma vector database using semantic search + Gemini. Results include context sources and similarity scores.</p>
+  </div>
+
+  <div class="query-box">
+    <div class="query-label">// Query</div>
+    <div class="query-input-row">
+      <textarea id="queryInput" placeholder="What would you like to know from your documents?" rows="3"></textarea>
+      <button class="run-btn" id="runBtn" onclick="runQuery()">▶ Run</button>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Ready — start api.py then open http://localhost:8000</span>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="output-section" id="outputSection">
+
+    <div class="answer-card">
+      <div class="card-header">
+        <span class="card-title">// Answer</span>
+        <span class="card-badge">gemini-2.5-flash-lite</span>
+      </div>
+      <div class="answer-body" id="answerBody"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div>
+      <div class="sources-header">
+        <span class="sources-title">// Sources</span>
+        <span class="sources-count" id="sourcesCount">—</span>
+      </div>
+      <div class="source-list" id="sourceList"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  // Points to the FastAPI backend — served from the same origin when you visit
+  // http://localhost:8000, so no CORS issues. Change only if hosting separately.
+  const API_BASE = "";   // empty = same origin; or "http://localhost:8000"
+
+  function setStatus(state, text) {
+    document.getElementById('statusDot').className = 'status-dot ' + (state || '');
+    document.getElementById('statusText').textContent = text;
+  }
+
+  function scoreStyle(score) {
+    // Lower Chroma distance = higher similarity
+    if (score <= 0.3) return { cls: 'score-high', fill: 'fill-high', pct: 95 };
+    if (score <= 0.6) return { cls: 'score-mid',  fill: 'fill-mid',  pct: 60 };
+    return                    { cls: 'score-low',  fill: 'fill-low',  pct: 25 };
+  }
+
+  function renderSources(sources) {
+    document.getElementById('sourcesCount').textContent = sources.length + ' chunks';
+    const list = document.getElementById('sourceList');
+    list.innerHTML = '';
+
+    sources.forEach((src, i) => {
+      const sc  = scoreStyle(src.score);
+      const pct = Math.max(5, Math.min(100, Math.round((1 - src.score) * 100)));
+
+      const card = document.createElement('div');
+      card.className = 'source-card';
+      card.innerHTML = `
+        <div class="source-num">${i + 1}</div>
+        <div class="source-meta">
+          <div class="source-file" title="${src.file}">${src.file}</div>
+          <div class="source-tags">
+            <div class="tag">Page <span>${src.page}</span></div>
+            <div class="tag">Chunk <span>${src.chunk}</span></div>
+            <div class="tag">ID <span style="font-size:10px">${src.id}</span></div>
+          </div>
+          <div class="source-preview">${src.preview}…</div>
+        </div>
+        <div class="score-col">
+          <div class="score-val ${sc.cls}">${src.score.toFixed(3)}</div>
+          <div class="score-label">distance</div>
+          <div class="score-bar"><div class="score-fill ${sc.fill}" style="width:${pct}%"></div></div>
+        </div>
+      `;
+      list.appendChild(card);
+    });
+  }
+
+  function showSkeleton() {
+    document.getElementById('answerBody').innerHTML = `
+      <div class="skeleton skeleton-line" style="width:95%"></div>
+      <div class="skeleton skeleton-line" style="width:88%"></div>
+      <div class="skeleton skeleton-line" style="width:72%"></div>
+      <div class="skeleton skeleton-line"></div>
+    `;
+    document.getElementById('sourceList').innerHTML = '';
+    document.getElementById('sourcesCount').textContent = '—';
+  }
+
+  async function runQuery() {
+    const query = document.getElementById('queryInput').value.trim();
+    if (!query) return;
+
+    const btn      = document.getElementById('runBtn');
+    const errorBox = document.getElementById('errorBox');
+    const output   = document.getElementById('outputSection');
+
+    btn.disabled = true;
+    errorBox.style.display = 'none';
+    setStatus('active', 'Searching Chroma…');
+    showSkeleton();
+    output.classList.add('visible');
+
+    try {
+      setStatus('active', 'Querying Gemini…');
+
+      const res = await fetch(`${API_BASE}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query_text: query }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.detail || `Server error: HTTP ${res.status}`);
+      }
+
+      const data = await res.json();  // { answer: string, sources: SourceResult[] }
+
+      document.getElementById('answerBody').textContent = data.answer;
+      renderSources(data.sources);
+      setStatus('done', `Done — ${data.sources.length} chunks retrieved`);
+
+    } catch (err) {
+      setStatus('error', 'Error');
+      errorBox.style.display = 'block';
+      errorBox.textContent = '⚠ ' + (err.message || 'Unknown error. Is api.py running?');
+      document.getElementById('answerBody').innerHTML =
+        '<span style="color:var(--muted);font-size:13px">No answer generated.</span>';
+    }
+
+    btn.disabled = false;
+  }
+
+  // Ctrl/Cmd + Enter to submit
+  document.getElementById('queryInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runQuery();
+  });
+</script>
+</body>
+</html>
