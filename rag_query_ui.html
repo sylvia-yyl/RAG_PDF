@@ -198,12 +198,14 @@
   .source-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
   .tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); }
   .tag span { color: var(--text); }
-  .source-preview { font-size: 12px; color: var(--muted); line-height: 1.55; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; font-style: italic; }
+  .source-preview { font-size: 13px; color: #c8ccd8; line-height: 1.65; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; font-style: italic; white-space: pre-wrap; word-break: break-word; }
+  .kw { font-weight: 700; font-style: normal; color: #e8eaf2; }
 
   /* Score meter */
   .score-col { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
   .score-val { font-size: 18px; font-family: 'Fraunces', serif; font-weight: 600; line-height: 1; }
   .score-label { font-size: 10px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+  .rank-label  { font-size: 10px; color: var(--accent2); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 4px; }
   .score-bar { width: 60px; height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
   .score-fill { height: 100%; border-radius: 2px; transition: width 0.8s ease; }
 
@@ -238,7 +240,7 @@
   <div class="header">
     <div class="header-label">// RAG Query Interface</div>
     <h1>Ask your <span>documents</span></h1>
-    <p class="header-desc">Query your Chroma vector database using semantic search + Gemini. Results include context sources and similarity scores.</p>
+    <p class="header-desc">Query your Chroma vector database using semantic search + cross-encoder reranking + Gemini. Results are ordered by relevance, not vector distance.</p>
   </div>
 
   <div class="query-box">
@@ -297,7 +299,43 @@
     return                    { cls: 'score-low',  fill: 'fill-low',  pct: 25 };
   }
 
-  function renderSources(sources) {
+  // Stop-words to exclude from keyword highlighting
+  const STOP_WORDS = new Set([
+    'a','an','the','and','or','but','in','on','at','to','for','of','with',
+    'is','are','was','were','be','been','being','have','has','had','do','does',
+    'did','will','would','could','should','may','might','shall','can','need',
+    'what','which','who','how','when','where','why','that','this','these','those',
+    'it','its','i','you','he','she','we','they','my','your','his','her','our',
+    'from','by','as','about','into','through','between','after','before',
+    'not','no','nor','so','yet','both','either','each','than','then','though',
+  ]);
+
+  function extractKeywords(query) {
+    return [...new Set(
+      query.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 1 && !STOP_WORDS.has(w))
+    )];
+  }
+
+  function highlightKeywords(text, keywords) {
+    if (!keywords.length) return escapeHtml(text);
+    // Sort longest first so multi-char words don't get partially matched
+    const sorted = [...keywords].sort((a, b) => b.length - a.length);
+    const pattern = new RegExp(`(${sorted.map(escapeRegex).join('|')})`, 'gi');
+    return escapeHtml(text).replace(pattern, '<span class="kw">$1</span>');
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function renderSources(sources, query) {
+    const keywords = extractKeywords(query || '');
     document.getElementById('sourcesCount').textContent = sources.length + ' chunks';
     const list = document.getElementById('sourceList');
     list.innerHTML = '';
@@ -311,17 +349,18 @@
       card.innerHTML = `
         <div class="source-num">${i + 1}</div>
         <div class="source-meta">
-          <div class="source-file" title="${src.file}">${src.file}</div>
+          <div class="source-file" title="${escapeHtml(src.file)}">${escapeHtml(src.file)}</div>
           <div class="source-tags">
             <div class="tag">Page <span>${src.page}</span></div>
             <div class="tag">Chunk <span>${src.chunk}</span></div>
-            <div class="tag">ID <span style="font-size:10px">${src.id}</span></div>
+            <div class="tag">ID <span style="font-size:10px">${escapeHtml(src.id)}</span></div>
           </div>
-          <div class="source-preview">${src.preview}…</div>
+          <div class="source-preview">${highlightKeywords(src.preview, keywords)}</div>
         </div>
         <div class="score-col">
           <div class="score-val ${sc.cls}">${src.score.toFixed(3)}</div>
-          <div class="score-label">distance</div>
+          <div class="score-label">chroma dist</div>
+          <div class="rank-label">rank #${i+1}</div>
           <div class="score-bar"><div class="score-fill ${sc.fill}" style="width:${pct}%"></div></div>
         </div>
       `;
@@ -350,7 +389,7 @@
 
     btn.disabled = true;
     errorBox.style.display = 'none';
-    setStatus('active', 'Searching Chroma…');
+    setStatus('active', 'Searching Chroma + reranking…');
     showSkeleton();
     output.classList.add('visible');
 
@@ -371,7 +410,7 @@
       const data = await res.json();  // { answer: string, sources: SourceResult[] }
 
       document.getElementById('answerBody').textContent = data.answer;
-      renderSources(data.sources);
+      renderSources(data.sources, query);
       setStatus('done', `Done — ${data.sources.length} chunks retrieved`);
 
     } catch (err) {
